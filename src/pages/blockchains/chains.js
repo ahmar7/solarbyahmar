@@ -88,8 +88,7 @@ func main() {
   req, _ := http.NewRequest("POST", url, bytes.NewBufferString(jsonStr))
   req.Header.Set("accept", "application/json")
   req.Header.Set("content-type", "application/json")
-  req.Header.Set("x-api-key", "t-67853e56a3925d2e4f056155-419029ca91d6465cb2c92b5a")
-
+  
   client := &http.Client{}
   resp, _ := client.Do(req)
 
