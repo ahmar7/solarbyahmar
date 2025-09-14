@@ -22,12 +22,21 @@ const TodayStatsChart = () => {
         return () => window.removeEventListener("resize", handleResize);
     }, []);
     const [data, setData] = useState([]);
+    
     const [total, setTotal] = useState(0);
     const [loadTotal, setLoadTotal] = useState(0);
     const [isLoading, setisLoading] = useState(true);
-    const [selectedDate, setSelectedDate] = useState(
-        new Date().toISOString().split("T")[0] // default today
-    );
+    const getTodayLocal = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+    const day = String(today.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+};
+
+const [selectedDate, setSelectedDate] = useState(getTodayLocal());
+
+   
 
     const fetchData = async (date) => {
 
@@ -62,22 +71,20 @@ const TodayStatsChart = () => {
         }
     };
 
-    useEffect(() => {
-        fetchData(selectedDate);
-        setisLoading(true)
-    }, [selectedDate]);
-    useEffect(() => {
-        // initial fetch
-        fetchData(selectedDate);
+   useEffect(() => {
+    const fetchAndSetLoading = async () => {
+        setisLoading(true);
+        await fetchData(selectedDate);
+    };
+    fetchAndSetLoading();
 
-        // auto refresh every 30 sec
-        const interval = setInterval(() => {
-            fetchData(selectedDate);
-        }, 309000);
+    const interval = setInterval(() => {
+        fetchAndSetLoading();
+    }, 30000); // 30 sec
 
-        // cleanup on unmount
-        return () => clearInterval(interval);
-    }, [selectedDate]);
+    return () => clearInterval(interval);
+}, [selectedDate]);
+
     return (
         <div style={{ width: "100%", height: 550 }}>
             <h2>Solar Stats</h2>
