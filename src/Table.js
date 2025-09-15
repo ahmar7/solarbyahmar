@@ -261,7 +261,7 @@ const TodayStatsChart = () => {
 
     const fetchData = async (date) => {
         try {
-            const res = await axios.get(`http://127.0.0.1:8000/stats?date=${date}`);
+            const res = await axios.get(`https://watchpower-api-main-1.onrender.com/stats?date=${date}`);
             if (res.data.success) {
                 const graphData = res.data.graph;
 
@@ -543,7 +543,7 @@ const StatsPage = () => {
         try {
             setIsLoading(true);
             const res = await axios.get(
-                `http://127.0.0.1:8000/stats-range?from_date=${fromDate}&to_date=${toDate}`
+                `https://watchpower-api-main-1.onrender.com/stats-range?from_date=${fromDate}&to_date=${toDate}`
             );
 
             console.log('res.data: ', res.data);
