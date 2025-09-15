@@ -29,7 +29,7 @@ import {
     Paper,
     styled,
     InputAdornment,
-    TextField,Button
+    TextField, Button
 } from "@mui/material";
 import {
     Menu as MenuIcon,
@@ -41,7 +41,8 @@ import {
     CalendarToday,
     Refresh
 } from "@mui/icons-material";
-import './table.css' 
+import './table.css'
+import { toast } from "react-toastify";
 const drawerWidth = 280;
 
 const Main = styled("main", { shouldForwardProp: (prop) => prop !== "open" })(
@@ -79,7 +80,6 @@ const AppBarStyled = styled(AppBar, {
         }),
     }),
 }));
-
 const DrawerHeader = styled("div")(({ theme }) => ({
     display: "flex",
     alignItems: "center",
@@ -208,6 +208,8 @@ const TodayStatsChart = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [modeZones, setModeZones] = useState([]);
     const [lastUpdated, setLastUpdated] = useState(new Date());
+    const [loadSheddingHours, setLoadSheddingHours] = useState(0);
+    const [cutOffHours, setcutOffHours] = useState(0);
 
     const getTodayLocal = () => {
         const today = new Date();
@@ -263,29 +265,50 @@ const TodayStatsChart = () => {
         try {
             const res = await axios.get(`https://watchpower-api-main-1.onrender.com/stats?date=${date}`);
             if (res.data.success) {
+
                 const graphData = res.data.graph;
 
                 let pvSum = 0;
                 let loadSum = 0;
                 const intervalHours = 5 / 60;
 
+
+                let batteryHours = 0;
+                let cutOffHours = 0;
+
+
                 graphData.forEach((point) => {
                     pvSum += point.pv_power * intervalHours;
                     loadSum += point.load_power * intervalHours;
-                });
 
+                    if (point.mode === "Battery Mode") {
+                        batteryHours += intervalHours;
+                    }
+                    if (point.mode === "Standby Mode") {
+                        cutOffHours += intervalHours;
+                    }
+                });
                 setData(graphData);
                 setTotal((pvSum / 1000).toFixed(2));
                 setLoadTotal((loadSum / 1000).toFixed(2));
                 setModeZones(processModeZones(graphData));
                 setLastUpdated(new Date());
+
+
+
+                setLoadSheddingHours(batteryHours.toFixed(2)); // store hours
+                setcutOffHours(cutOffHours.toFixed(2)); // store hours
+
             } else {
+
+                toast.error("Error fetching API")
                 setData([]);
                 setTotal(0);
                 setLoadTotal(0);
                 setModeZones([]);
             }
         } catch (err) {
+            toast.error("Error fetching API")
             console.error("Error fetching API:", err);
         } finally {
             setIsLoading(false);
@@ -341,6 +364,11 @@ const TodayStatsChart = () => {
         setIsLoading(true);
         fetchData(selectedDate);
     };
+const formatHours = (decimalHours) => {
+  const hrs = Math.floor(decimalHours);
+  const mins = Math.round((decimalHours - hrs) * 60);
+  return `${hrs} hr ${mins} min`;
+};
 
     return (
         <Box>
@@ -390,6 +418,37 @@ const TodayStatsChart = () => {
                         </CardContent>
                     </Card>
                 </Grid>
+                <Grid item xs={12} md={6}>
+                    <Card elevation={3}>
+                        <CardContent>
+                            <Typography variant="h6" gutterBottom>
+                                Load Shedding Duration
+                            </Typography>
+                            <Typography variant="h4" color="error">
+                                {isLoading ? "..." : formatHours(loadSheddingHours)}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                Total time system ran on Battery/Solar
+                            </Typography>
+                        </CardContent>
+                    </Card>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                    <Card elevation={3}>
+                        <CardContent>
+                            <Typography variant="h6" gutterBottom>
+                                System off Duration
+                            </Typography>
+                            <Typography variant="h4" color="error">
+                                {isLoading ? "..." : formatHours(cutOffHours)}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                Total time system remained off
+                            </Typography>
+                        </CardContent>
+                    </Card>
+                </Grid>
+
             </Grid>
 
             <Card className="muasn" elevation={3} sx={{ mb: 3 }}>
@@ -538,9 +597,15 @@ const StatsPage = () => {
         feeded: 0,
     });
     const [isLoading, setIsLoading] = useState(false);
-
+    const [missingDates, setMissingDates] = useState([]);
     const fetchData = async () => {
         try {
+            setTotals({
+                production: '...',
+                load: '...',
+                saved: '...',
+                feeded: '...',
+            });
             setIsLoading(true);
             const res = await axios.get(
                 `https://watchpower-api-main-1.onrender.com/stats-range?from_date=${fromDate}&to_date=${toDate}`
@@ -548,13 +613,22 @@ const StatsPage = () => {
 
             console.log('res.data: ', res.data);
             if (res.data.success) {
-                const dailyData = res.data.daily.map((d) => ({
-                    date: d.date,
-                    production: d.production_kwh,
-                    load: d.load_kwh,
-                    saved: Math.min(d.production_kwh, d.load_kwh),
-                    feeded: Math.max(0, d.production_kwh - d.load_kwh),
-                }));
+                const dailyData = res.data.daily.map((d) => {
+                    const isNull = (d.production_kwh === null || d.load_kwh === null);
+
+                    if (isNull) {
+                        console.warn(`⚠️ No data for ${d.date}`);
+                    }
+
+                    return {
+                        date: d.date,
+                        production: isNull ? 0 : d.production_kwh,
+                        load: isNull ? 0 : d.load_kwh,
+                        saved: isNull ? 0 : Math.min(d.production_kwh, d.load_kwh),
+                        feeded: isNull ? 0 : Math.max(0, d.production_kwh - d.load_kwh),
+                        isNull
+                    };
+                });
 
                 setData(dailyData);
 
@@ -569,13 +643,32 @@ const StatsPage = () => {
                     saved: saved.toFixed(2),
                     feeded: feeded.toFixed(2),
                 });
+
+                // ✅ Show which days had null data
+
+                const nullDays = dailyData.filter(d => d.isNull).map(d => d.date);
+                setMissingDates(nullDays);
+
+                return
+            } else {
+
+                setTotals({
+                    production: 0,
+                    load: 0,
+                    saved: 0,
+                    feeded: 0,
+                });
+                toast.error("Error fetching API")
             }
         } catch (err) {
+
+            toast.error("Error fetching API")
             console.error("Error fetching API:", err);
         } finally {
             setIsLoading(false);
         }
     };
+
 
     // useEffect(() => {
     //     fetchData();
@@ -604,7 +697,7 @@ const StatsPage = () => {
                         </CardContent>
                     </Card>
                 </Grid>
-                <Grid item xs={12} md={3}>
+                {/* <Grid item xs={12} md={3}>
                     <Card>
                         <CardContent>
                             <Typography variant="h6">Saved Units</Typography>
@@ -613,7 +706,7 @@ const StatsPage = () => {
                             </Typography>
                         </CardContent>
                     </Card>
-                </Grid>
+                </Grid> */}
                 <Grid item xs={12} md={3}>
                     <Card>
                         <CardContent>
@@ -628,7 +721,7 @@ const StatsPage = () => {
 
             <Card>
                 <CardContent>
-                    <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
+                    <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: 'wrap' }}>
                         <TextField
                             label="From"
                             type="date"
@@ -666,12 +759,17 @@ const StatsPage = () => {
 
                         {/* ✅ Confirm button */}
                     </Box>
-
+                    {missingDates.length > 0 && (
+                        <Typography variant="body2" color="error" sx={{ mb: 2 }}>
+                            ⚠️ Missing data for: {missingDates.join(", ")}
+                        </Typography>
+                    )}
                     {isLoading ? (
                         <Typography>Loading...</Typography>
                     ) : (
                         <ResponsiveContainer width="100%" height={400}>
-                            <AreaChart data={data}>
+                            <AreaChart data={data}
+                                margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                                 <defs>
                                     <linearGradient id="prodColor" x1="0" y1="0" x2="0" y2="1">
                                         <stop offset="5%" stopColor="#82ca9d" stopOpacity={0.8} />
@@ -684,7 +782,9 @@ const StatsPage = () => {
                                 </defs>
                                 <CartesianGrid strokeDasharray="3 3" />
                                 <XAxis dataKey="date" />
-                                <YAxis />
+                                {/* <YAxis /> */}
+                                <YAxis width={40} tickFormatter={(value) => `${value}k`} />
+
                                 <Tooltip />
                                 <Legend />
                                 <Area
