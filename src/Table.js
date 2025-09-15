@@ -591,10 +591,10 @@ const StatsPage = () => {
 
     const [data, setData] = useState([]);
     const [totals, setTotals] = useState({
-        production: 0,
-        load: 0,
-        saved: 0,
-        feeded: 0,
+        production: '...',
+        load: '...',
+        saved: '...',
+        feeded: '...',
     });
     const [isLoading, setIsLoading] = useState(false);
     const [missingDates, setMissingDates] = useState([]);
@@ -672,7 +672,8 @@ const StatsPage = () => {
 
     // useEffect(() => {
     //     fetchData();
-    // }, [fromDate, toDate]);
+    // },[]);
+   
 
     return (
         <Box>
