@@ -8,3 +8,21 @@
 body{
      font-family: "Montserrat", sans-serif !important;
 }
+@media (max-width:768px) {
+    .css-8ksggj{
+        margin-left: 0 !important;
+    }
+    .css-8ksggj{
+        padding-inline: 0 !important;
+    }
+    
+    .myasn{
+        padding-inline: 0 !important;
+    }
+    
+    .muasn{
+        box-shadow: none !important;
+        background-color: transparent !important;
+    }
+    
+}
