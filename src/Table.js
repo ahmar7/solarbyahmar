@@ -29,7 +29,8 @@ import {
     Paper,
     styled,
     InputAdornment,
-    TextField, Button
+    TextField, Button,
+    LinearProgress
 } from "@mui/material";
 import {
     Menu as MenuIcon,
@@ -43,7 +44,6 @@ import {
 } from "@mui/icons-material";
 import './table.css'
 import { toast } from "react-toastify";
-import { ProgressBar } from "react-bootstrap";
 const drawerWidth = 280;
 
 const Main = styled("main", { shouldForwardProp: (prop) => prop !== "open" })(
@@ -599,8 +599,8 @@ const StatsPage = () => {
     });
     const [isLoading, setIsLoading] = useState(false);
     const [missingDates, setMissingDates] = useState([]);
-    const [progress, setProgress] = useState(0);
     // https://watchpower-api-main-1.onrender.com
+    const [progress, setProgress] = useState(0);
     const fetchData = async () => {
         try {
             setTotals({
@@ -610,75 +610,106 @@ const StatsPage = () => {
                 feeded: '...',
             });
             setIsLoading(true);
-            setProgress(0); // new state to track progress
-            console.log(progress);
-            const response = await fetch(
-                `https://watchpower-api-main-1.onrender.com/stats-range?from_date=${fromDate}&to_date=${toDate}`
+            setProgress(0); // Reset progress
+
+            const res = await axios.get(
+                `https://watchpower-api-main-1.onrender.com/stats-range?from_date=${fromDate}&to_date=${toDate}`,
+                {
+                    onDownloadProgress: (progressEvent) => {
+                        // Handle streaming chunks
+                        if (progressEvent.event.target.responseText) {
+                            const chunks = progressEvent.event.target.responseText.trim().split('\n');
+                            const lastChunk = chunks[chunks.length - 1];
+
+                            try {
+                                const data = JSON.parse(lastChunk);
+                                if (data.success && data.progress !== undefined) {
+                                    setProgress(data.progress);
+                                }
+                            } catch (e) {
+                                // Ignore parsing errors for incomplete chunks
+                            }
+                        }
+                    }
+                }
             );
 
-            if (!response.body) throw new Error("ReadableStream not supported");
+            // Process the final response
+            const lines = res.data.trim().split('\n');
+            const dailyStats = [];
+            let finalTotals = { total_production_kwh: 0, total_load_kwh: 0 };
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let rawData = '';
-            let done = false;
-
-            while (!done) {
-                const { value, done: doneReading } = await reader.read();
-                done = doneReading;
-                rawData += decoder.decode(value, { stream: !done });
-
-                // Try to parse partial JSON (if backend sends progress updates)
-                try {
-                    const parsed = JSON.parse(rawData);
-                    if (parsed.progress !== undefined) {
-                        setProgress(parsed.progress); // 0-100
-                        console.log('parsed.progress: ', parsed.progress);
+            for (const line of lines) {
+                if (line.trim()) {
+                    try {
+                        const data = JSON.parse(line);
+                        if (data.success) {
+                            if (data.daily) {
+                                dailyStats.push(data.daily);
+                            }
+                            if (data.total_production_kwh !== undefined) {
+                                finalTotals.total_production_kwh = data.total_production_kwh;
+                            }
+                            if (data.total_load_kwh !== undefined) {
+                                finalTotals.total_load_kwh = data.total_load_kwh;
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error parsing JSON chunk:', e);
                     }
-                    if (parsed.daily) {
-                        const dailyData = parsed.daily.map((d) => {
-                            const isNull = d.production_kwh === null || d.load_kwh === null;
-                            return {
-                                date: d.date,
-                                production: isNull ? 0 : d.production_kwh,
-                                load: isNull ? 0 : d.load_kwh,
-                                saved: isNull ? 0 : Math.min(d.production_kwh, d.load_kwh),
-                                feeded: isNull ? 0 : Math.max(0, d.production_kwh - d.load_kwh),
-                                isNull
-                            };
-                        });
-
-                        setData(dailyData);
-
-                        const totalProd = parsed.total_production_kwh;
-                        const totalLoad = parsed.total_load_kwh;
-                        const saved = Math.min(totalProd, totalLoad);
-                        const feeded = Math.max(0, totalProd - totalLoad);
-
-                        setTotals({
-                            production: totalProd.toFixed(2),
-                            load: totalLoad.toFixed(2),
-                            saved: saved.toFixed(2),
-                            feeded: feeded.toFixed(2),
-                        });
-
-                        const nullDays = dailyData.filter(d => d.isNull).map(d => d.date);
-                        setMissingDates(nullDays);
-                    }
-                } catch (err) {
-                    // Partial JSON, ignore until complete
                 }
             }
+
+            // Process the daily data
+            const dailyData = dailyStats.map((d) => {
+                const isNull = (d.production_kwh === null || d.load_kwh === null);
+
+                if (isNull) {
+                    console.warn(`⚠️ No data for ${d.date}`);
+                }
+
+                return {
+                    date: d.date,
+                    production: isNull ? 0 : d.production_kwh,
+                    load: isNull ? 0 : d.load_kwh,
+                    saved: isNull ? 0 : Math.min(d.production_kwh, d.load_kwh),
+                    feeded: isNull ? 0 : Math.max(0, d.production_kwh - d.load_kwh),
+                    isNull
+                };
+            });
+
+            setData(dailyData);
+
+            const totalProd = finalTotals.total_production_kwh;
+            const totalLoad = finalTotals.total_load_kwh;
+            const saved = Math.min(totalProd, totalLoad);
+            const feeded = Math.max(0, totalProd - totalLoad);
+
+            setTotals({
+                production: totalProd.toFixed(2),
+                load: totalLoad.toFixed(2),
+                saved: saved.toFixed(2),
+                feeded: feeded.toFixed(2),
+            });
+
+            // Show which days had null data
+            const nullDays = dailyData.filter(d => d.isNull).map(d => d.date);
+            setMissingDates(nullDays);
+
         } catch (err) {
-            toast.error("Error fetching API");
+            toast.error("Error fetching API")
             console.error("Error fetching API:", err);
+            setTotals({
+                production: 0,
+                load: 0,
+                saved: 0,
+                feeded: 0,
+            });
         } finally {
             setIsLoading(false);
-            setProgress(100); // complete
+            setProgress(0); // Reset progress when done
         }
     };
-
-
 
     // useEffect(() => {
     //     fetchData();
@@ -776,9 +807,16 @@ const StatsPage = () => {
                         </Typography>
                     )}
                     {isLoading ? (
-                        <> <Typography>Loading...</Typography>
-                            <progress value={progress} max={100}></progress> {progress}%</>
-
+                        <Box sx={{ width: '100%', mb: 2 }}>
+                            <LinearProgress
+                                variant="determinate"
+                                value={progress}
+                                sx={{ height: 10, borderRadius: 5 }}
+                            />
+                            <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
+                                Loading... {progress.toFixed(0)}%
+                            </Typography>
+                        </Box>
                     ) : (
                         <ResponsiveContainer width="100%" height={400}>
                             <AreaChart data={data}
