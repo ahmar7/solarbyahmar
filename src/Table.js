@@ -43,6 +43,7 @@ import {
 } from "@mui/icons-material";
 import './table.css'
 import { toast } from "react-toastify";
+import { ProgressBar } from "react-bootstrap";
 const drawerWidth = 280;
 
 const Main = styled("main", { shouldForwardProp: (prop) => prop !== "open" })(
@@ -364,11 +365,11 @@ const TodayStatsChart = () => {
         setIsLoading(true);
         fetchData(selectedDate);
     };
-const formatHours = (decimalHours) => {
-  const hrs = Math.floor(decimalHours);
-  const mins = Math.round((decimalHours - hrs) * 60);
-  return `${hrs} hr ${mins} min`;
-};
+    const formatHours = (decimalHours) => {
+        const hrs = Math.floor(decimalHours);
+        const mins = Math.round((decimalHours - hrs) * 60);
+        return `${hrs} hr ${mins} min`;
+    };
 
     return (
         <Box>
@@ -598,6 +599,8 @@ const StatsPage = () => {
     });
     const [isLoading, setIsLoading] = useState(false);
     const [missingDates, setMissingDates] = useState([]);
+    const [progress, setProgress] = useState(0);
+    // https://watchpower-api-main-1.onrender.com
     const fetchData = async () => {
         try {
             setTotals({
@@ -607,73 +610,80 @@ const StatsPage = () => {
                 feeded: '...',
             });
             setIsLoading(true);
-            const res = await axios.get(
+            setProgress(0); // new state to track progress
+            console.log(progress);
+            const response = await fetch(
                 `https://watchpower-api-main-1.onrender.com/stats-range?from_date=${fromDate}&to_date=${toDate}`
             );
 
-            console.log('res.data: ', res.data);
-            if (res.data.success) {
-                const dailyData = res.data.daily.map((d) => {
-                    const isNull = (d.production_kwh === null || d.load_kwh === null);
+            if (!response.body) throw new Error("ReadableStream not supported");
 
-                    if (isNull) {
-                        console.warn(`⚠️ No data for ${d.date}`);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let rawData = '';
+            let done = false;
+
+            while (!done) {
+                const { value, done: doneReading } = await reader.read();
+                done = doneReading;
+                rawData += decoder.decode(value, { stream: !done });
+
+                // Try to parse partial JSON (if backend sends progress updates)
+                try {
+                    const parsed = JSON.parse(rawData);
+                    if (parsed.progress !== undefined) {
+                        setProgress(parsed.progress); // 0-100
+                        console.log('parsed.progress: ', parsed.progress);
                     }
+                    if (parsed.daily) {
+                        const dailyData = parsed.daily.map((d) => {
+                            const isNull = d.production_kwh === null || d.load_kwh === null;
+                            return {
+                                date: d.date,
+                                production: isNull ? 0 : d.production_kwh,
+                                load: isNull ? 0 : d.load_kwh,
+                                saved: isNull ? 0 : Math.min(d.production_kwh, d.load_kwh),
+                                feeded: isNull ? 0 : Math.max(0, d.production_kwh - d.load_kwh),
+                                isNull
+                            };
+                        });
 
-                    return {
-                        date: d.date,
-                        production: isNull ? 0 : d.production_kwh,
-                        load: isNull ? 0 : d.load_kwh,
-                        saved: isNull ? 0 : Math.min(d.production_kwh, d.load_kwh),
-                        feeded: isNull ? 0 : Math.max(0, d.production_kwh - d.load_kwh),
-                        isNull
-                    };
-                });
+                        setData(dailyData);
 
-                setData(dailyData);
+                        const totalProd = parsed.total_production_kwh;
+                        const totalLoad = parsed.total_load_kwh;
+                        const saved = Math.min(totalProd, totalLoad);
+                        const feeded = Math.max(0, totalProd - totalLoad);
 
-                const totalProd = res.data.total_production_kwh;
-                const totalLoad = res.data.total_load_kwh;
-                const saved = Math.min(totalProd, totalLoad);
-                const feeded = Math.max(0, totalProd - totalLoad);
+                        setTotals({
+                            production: totalProd.toFixed(2),
+                            load: totalLoad.toFixed(2),
+                            saved: saved.toFixed(2),
+                            feeded: feeded.toFixed(2),
+                        });
 
-                setTotals({
-                    production: totalProd.toFixed(2),
-                    load: totalLoad.toFixed(2),
-                    saved: saved.toFixed(2),
-                    feeded: feeded.toFixed(2),
-                });
-
-                // ✅ Show which days had null data
-
-                const nullDays = dailyData.filter(d => d.isNull).map(d => d.date);
-                setMissingDates(nullDays);
-
-                return
-            } else {
-
-                setTotals({
-                    production: 0,
-                    load: 0,
-                    saved: 0,
-                    feeded: 0,
-                });
-                toast.error("Error fetching API")
+                        const nullDays = dailyData.filter(d => d.isNull).map(d => d.date);
+                        setMissingDates(nullDays);
+                    }
+                } catch (err) {
+                    // Partial JSON, ignore until complete
+                }
             }
         } catch (err) {
-
-            toast.error("Error fetching API")
+            toast.error("Error fetching API");
             console.error("Error fetching API:", err);
         } finally {
             setIsLoading(false);
+            setProgress(100); // complete
         }
     };
+
 
 
     // useEffect(() => {
     //     fetchData();
     // },[]);
-   
+
 
     return (
         <Box>
@@ -766,7 +776,9 @@ const StatsPage = () => {
                         </Typography>
                     )}
                     {isLoading ? (
-                        <Typography>Loading...</Typography>
+                        <> <Typography>Loading...</Typography>
+                            <progress value={progress} max={100}></progress> {progress}%</>
+
                     ) : (
                         <ResponsiveContainer width="100%" height={400}>
                             <AreaChart data={data}
