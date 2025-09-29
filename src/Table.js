@@ -599,6 +599,7 @@ const StatsPage = () => {
     });
     const [isLoading, setIsLoading] = useState(false);
     const [missingDates, setMissingDates] = useState([]);
+    const [isError, setisError] = useState("");
     // https://watchpower-api-main-1.onrender.com
     const [progress, setProgress] = useState(0);
     const fetchData = async () => {
@@ -697,6 +698,7 @@ const StatsPage = () => {
             setMissingDates(nullDays);
 
         } catch (err) {
+            setisError(err)
             toast.error("Error fetching API")
             console.error("Error fetching API:", err);
             setTotals({
@@ -804,6 +806,11 @@ const StatsPage = () => {
                     {missingDates.length > 0 && (
                         <Typography variant="body2" color="error" sx={{ mb: 2 }}>
                             ⚠️ Missing data for: {missingDates.join(", ")}
+                        </Typography>
+                    )}
+                    {isError && (
+                        <Typography variant="body2" color="error" sx={{ mb: 2 }}>
+                            isError
                         </Typography>
                     )}
                     {isLoading ? (
